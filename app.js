@@ -37,8 +37,14 @@ const personPickerWrap = document.getElementById("personPickerWrap");
 const STORAGE_KEYS = { settings: "repcounter-settings-v2", history: "repcounter-history-v2", lifetime: "repcounter-lifetime-v2" };
 const defaultSettings = { restSeconds: 60, sound: true, sensitivity: "standard", weeklySetGoal: 9 };
 function loadStored(key, fallback) {
-  try { const value = localStorage.getItem(key); return value ? { ...fallback, ...JSON.parse(value) } : JSON.parse(JSON.stringify(fallback)); }
-  catch { return JSON.parse(JSON.stringify(fallback)); }
+  try {
+    const value = localStorage.getItem(key);
+    if (!value) return JSON.parse(JSON.stringify(fallback));
+    const parsed = JSON.parse(value);
+    if (Array.isArray(fallback)) return Array.isArray(parsed) ? parsed : JSON.parse(JSON.stringify(fallback));
+    if (fallback && typeof fallback === "object") return { ...fallback, ...parsed };
+    return parsed;
+  } catch { return JSON.parse(JSON.stringify(fallback)); }
 }
 function saveStored(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); }

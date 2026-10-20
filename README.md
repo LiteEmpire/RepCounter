@@ -6,7 +6,7 @@ A responsive, browser-based dumbbell curl counter. It uses MediaPipe Pose Landma
 
 - Live camera view with arm landmarks overlaid
 - Left/right arm selector
-- Rep counter, set progress, session timer, and set history for the current session
+- Smoothed elbow-angle tracking with configurable movement range and form cues\n- Automatic set completion every 12 counted reps, plus a configurable rest timer\n- Local workout history, lifetime milestones, and a weekly set goal\n- Custom rest duration, sound alerts, and curl-detection sensitivity
 - Movement prompts and basic elbow-angle feedback
 - Camera-free demo mode
 - Light/dark theme
@@ -30,7 +30,7 @@ The app loads MediaPipe and its pose model from public CDNs, so an internet conn
 - Allow camera permission when the browser asks.
 - Use good lighting and keep your selected shoulder, elbow, and wrist visible.
 - Position the camera so your arm is clearly in frame; a side-on angle can help.
-- The rep counter uses approximate elbow-angle thresholds. Camera angle, occlusion, loose clothing, and lighting can affect detection.
+- The rep counter smooths elbow angles and checks the full curl-and-return cycle, but remains an estimate. Camera angle, occlusion, loose clothing, and lighting can affect detection.\n- Workout history and goals are stored in local browser storage on the current device. Clearing site data may remove them; they do not sync between devices.
 - This is a general fitness tool, not medical advice. Use a comfortable weight and stop if you feel pain or dizziness.
 
 ## Privacy

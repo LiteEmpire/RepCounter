@@ -297,6 +297,10 @@ function processArmLandmarks(landmarks) {
     updateAngle(angleBetween(shoulder, elbow, wrist), landmarks);
     setTrackingStatus("Tracking active", true);
   } else {
+    setPhase("waiting");
+    angleHistory = [];
+    curledAt = 0;
+    elbowAnchor = null;
     $("angleReadout").textContent = "Arm not clear";
     setFeedback("Move your arm into view", "Try turning sideways and making sure your shoulder, elbow, and wrist are visible.", "◎");
   }
@@ -351,6 +355,10 @@ function trackFrame() {
         selectedPersonIndex = null;
         personPickerWrap.hidden = true;
         drawPose(null);
+        setPhase("waiting");
+        angleHistory = [];
+        curledAt = 0;
+        elbowAnchor = null;
         $("angleReadout").textContent = "Looking for pose…";
         setFeedback("Looking for your arm", "Step back slightly and keep your upper body in the camera frame.", "◎");
       }
@@ -533,6 +541,9 @@ stopButton.addEventListener("click", () => {
 });
 demoButton.addEventListener("click", startDemo);
 armSelect.addEventListener("change", () => {
+  angleHistory = [];
+  curledAt = 0;
+  elbowAnchor = null;
   setPhase("waiting");
   setFeedback("Arm selection changed", "Extend your selected arm comfortably to begin tracking a full biceps curl.", "↗");
 });

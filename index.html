@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#10131b" />
+  <meta name="description" content="A browser-based dumbbell curl rep counter using your camera." />
+  <title>RepCounter — Train with feedback</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="RepCounter home"><span class="brand-mark">R</span><span>RepCounter</span></a>
+      <div class="topbar-right"><span class="privacy-pill"><span class="live-dot"></span> Camera stays on your device</span><button id="themeToggle" class="icon-button" aria-label="Toggle theme" title="Toggle theme">☼</button></div>
+    </header>
+
+    <main>
+      <section class="welcome">
+        <div><p class="eyebrow">YOUR PERSONAL TRAINING SPACE</p><h1>Every rep <span>counts.</span></h1><p class="subhead">Track your dumbbell curls with live movement feedback.</p></div>
+        <div class="session-badge"><span class="session-dot"></span><span id="sessionStatus">Session not started</span></div>
+      </section>
+
+      <section class="dashboard-grid">
+        <div class="main-column">
+          <section class="panel camera-panel">
+            <div class="panel-heading"><div><p class="eyebrow">LIVE TRACKING</p><h2>Camera view</h2></div><span class="status-chip" id="trackingStatus">Camera off</span></div>
+            <div class="camera-stage" id="cameraStage">
+              <video id="cameraVideo" autoplay playsinline muted></video>
+              <canvas id="overlay"></canvas>
+              <div class="camera-placeholder" id="cameraPlaceholder"><div class="camera-icon">◎</div><h3>Ready when you are</h3><p>Position your upper body and the dumbbell arm in view.</p><button id="startCamera" class="primary-button">Enable camera <span>↗</span></button><button id="demoButton" class="text-button">Try demo mode</button></div>
+              <div class="camera-hud"><span id="angleReadout">Elbow angle: --°</span><span id="fpsReadout">POSE TRACKING</span></div>
+            </div>
+            <div class="camera-controls"><label class="field-label" for="armSelect">Tracking arm<select id="armSelect"><option value="right">Right arm</option><option value="left">Left arm</option></select></label><div class="control-actions"><button id="stopCamera" class="secondary-button" disabled>Stop camera</button><button id="resetButton" class="secondary-button">Reset session</button></div></div>
+            <p class="helper-text" id="cameraHelp">Use a well-lit space. Keep your shoulder, elbow, and wrist visible, and place the camera far enough away to see your movement.</p>
+          </section>
+          <section class="panel feedback-panel">
+            <div class="panel-heading"><div><p class="eyebrow">FORM FEEDBACK</p><h2>Movement check</h2></div><span class="feedback-icon">✳</span></div>
+            <div class="feedback-content"><div class="feedback-symbol" id="feedbackSymbol">↗</div><div><h3 id="feedbackTitle">Get into position</h3><p id="feedbackText">Start the camera and turn your body slightly sideways so your arm is easy to see.</p></div></div>
+            <div class="phase-track"><div class="phase" id="phaseDown"><span>1</span><div><strong>Lowered</strong><small>Extend your arm comfortably</small></div></div><div class="phase-line"></div><div class="phase" id="phaseUp"><span>2</span><div><strong>Curled</strong><small>Bring the dumbbell up</small></div></div></div>
+          </section>
+        </div>
+
+        <aside class="side-column">
+          <section class="panel rep-panel"><div class="panel-heading"><div><p class="eyebrow">THIS SET</p><h2>Repetitions</h2></div><span class="rep-icon">↻</span></div><div class="rep-count" id="repCount">0</div><p class="rep-caption">completed reps</p><div class="rep-progress"><div class="progress-label"><span>Set progress</span><strong id="progressText">0 / 10</strong></div><div class="progress-track"><div id="progressBar"></div></div></div><div class="set-actions"><button class="primary-button full-button" id="finishSet">Finish set <span>→</span></button><button class="secondary-button full-button" id="undoRep">Undo last rep</button></div></section>
+          <section class="panel stats-panel"><div class="panel-heading"><div><p class="eyebrow">SESSION OVERVIEW</p><h2>Your stats</h2></div></div><div class="stat-row"><div class="stat-icon">▤</div><div><span>Total reps</span><strong id="totalReps">0</strong></div></div><div class="stat-row"><div class="stat-icon">▦</div><div><span>Sets completed</span><strong id="setsCompleted">0</strong></div></div><div class="stat-row"><div class="stat-icon">◷</div><div><span>Session time</span><strong id="sessionTime">00:00</strong></div></div><div class="stat-row"><div class="stat-icon">⌁</div><div><span>Current phase</span><strong id="currentPhase">Waiting</strong></div></div></section>
+          <section class="tip-card"><div class="tip-spark">✦</div><div><strong>Small tip</strong><p>Move smoothly and use a comfortable range. The counter looks for a full curl and return, not tiny movements.</p></div></section>
+        </aside>
+      </section>
+      <footer><span>RepCounter</span><span>On-device pose estimation · Not medical advice</span></footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

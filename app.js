@@ -432,11 +432,79 @@ function stopDemo() {
   startButton.disabled = false;
   $("angleReadout").textContent = "Elbow angle: --°";
 }
+function startRestTimer() {
+  restEndsAt = Date.now() + settings.restSeconds * 1000;
+  $("restPanel").hidden = false;
+  $("restCountdown").textContent = String(Math.floor(settings.restSeconds / 60)).padStart(2, "0") + ":" + String(settings.restSeconds % 60).padStart(2, "0");
+  $("restMessage").textContent = "Rest comfortably before your next set.";
+  updateSessionTime();
+}
+function finishRest() {
+  restEndsAt = 0;
+  $("restPanel").hidden = true;
+  $("restCountdown").textContent = "00:00";
+  notify("Rest complete — ready when you are.");
+  playAlert(820);
+}
+function skipRest() { if (restEndsAt) finishRest(); }
+function renderHistory() {
+  const list = $("historyList");
+  if (!workoutHistory.length) {
+    list.innerHTML = '<p class="helper-text">Your saved workouts will appear here.</p>';
+    return;
+  }
+  list.innerHTML = workoutHistory.slice(0, 5).map(item => {
+    const date = new Date(item.date).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    return '<div class="history-item"><div><strong>' + date + '</strong><small>' + item.duration + ' min · ' + item.sets + ' sets</small></div><span>' + item.reps + ' reps</span></div>';
+  }).join("");
+}
+function saveWorkout() {
+  if (totalReps === 0 && setsCompleted === 0) { notify("Complete some curls before saving a workout."); return; }
+  if (savedThisSession) { notify("This workout is already saved."); return; }
+  const seconds = sessionStartedAt ? Math.max(0, Math.floor((Date.now() - sessionStartedAt) / 1000)) : 0;
+  workoutHistory.unshift({ date: new Date().toISOString(), reps: totalReps, sets: setsCompleted, duration: Math.max(1, Math.round(seconds / 60)) });
+  workoutHistory = workoutHistory.slice(0, 50);
+  saveStored(STORAGE_KEYS.history, workoutHistory);
+  lifetime.reps = (lifetime.reps || 0) + totalReps;
+  lifetime.sets = (lifetime.sets || 0) + setsCompleted;
+  saveStored(STORAGE_KEYS.lifetime, lifetime);
+  savedThisSession = true;
+  renderHistory();
+  updateAchievements();
+  notify("Workout saved on this device.");
+  $("sessionStatus").textContent = "Workout saved";
+}
+function updateAchievements() {
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  const weeklySets = workoutHistory.filter(w => new Date(w.date) >= weekStart).reduce((sum, w) => sum + (w.sets || 0), 0);
+  const achievements = [
+    { name: "First curl", desc: "Count your first rep", unlocked: (lifetime.reps || 0) >= 1 },
+    { name: "First full set", desc: "Complete 12 reps", unlocked: (lifetime.sets || 0) >= 1 },
+    { name: "100 reps", desc: "Accumulate 100 reps", unlocked: (lifetime.reps || 0) >= 100 },
+    { name: "5 workouts", desc: "Save five workouts", unlocked: workoutHistory.length >= 5 },
+    { name: "Weekly goal", desc: weeklySets + " / " + settings.weeklySetGoal + " sets this week", unlocked: weeklySets >= settings.weeklySetGoal }
+  ];
+  $("achievementList").innerHTML = achievements.map(a => '<div class="achievement ' + (a.unlocked ? "unlocked" : "") + '"><span>' + (a.unlocked ? "✓" : "☆") + '</span><div><strong>' + a.name + '</strong><small>' + a.desc + '</small></div></div>').join("");
+  $("weeklyProgress").textContent = weeklySets + " / " + settings.weeklySetGoal + " sets";
+}
+function applySettings() {
+  $("restDuration").value = String(settings.restSeconds);
+  $("soundToggle").checked = !!settings.sound;
+  $("sensitivitySelect").value = settings.sensitivity;
+  $("weeklySetGoal").value = settings.weeklySetGoal;
+}
 function resetSession() {
+  if ((totalReps > 0 || setsCompleted > 0) && !savedThisSession) saveWorkout();
   reps = 0;
   totalReps = 0;
   setsCompleted = 0;
   lastRepAt = 0;
+  angleHistory = [];
+  curledAt = 0;
+  elbowAnchor = null;
+  if (restEndsAt) finishRest();
   updateRepUI();
   setPhase("waiting");
   setFeedback("Get into position", "Extend your arm comfortably first. The counter waits for a full curl and return.", "↗");
@@ -445,6 +513,7 @@ function resetSession() {
   sessionStartedAt = null;
   clearInterval(sessionClock);
   $("sessionStatus").textContent = "Session not started";
+  savedThisSession = false;
   notify("Session reset");
 }
 startButton.addEventListener("click", startCamera);
@@ -468,6 +537,23 @@ personSelect.addEventListener("change", () => {
   }
 });
 $("resetButton").addEventListener("click", resetSession);
+$("saveWorkout").addEventListener("click", saveWorkout);
+$("skipRest").addEventListener("click", skipRest);
+$("restDuration").addEventListener("change", () => { settings.restSeconds = Number($("restDuration").value); saveStored(STORAGE_KEYS.settings, settings); });
+$("soundToggle").addEventListener("change", () => { settings.sound = $("soundToggle").checked; saveStored(STORAGE_KEYS.settings, settings); });
+$("sensitivitySelect").addEventListener("change", () => {
+  settings.sensitivity = $("sensitivitySelect").value;
+  angleHistory = [];
+  setPhase("waiting");
+  saveStored(STORAGE_KEYS.settings, settings);
+  notify("Curl detection settings updated.");
+});
+$("weeklySetGoal").addEventListener("change", () => {
+  settings.weeklySetGoal = Math.max(1, Math.min(100, Number($("weeklySetGoal").value) || 9));
+  $("weeklySetGoal").value = settings.weeklySetGoal;
+  saveStored(STORAGE_KEYS.settings, settings);
+  updateAchievements();
+});
 $("undoRep").addEventListener("click", () => {
   if (reps > 0) { reps--; totalReps = Math.max(0, totalReps - 1); updateRepUI(); notify("Last rep removed"); }
   else notify("No reps to undo yet");
@@ -484,3 +570,6 @@ window.addEventListener("beforeunload", () => {
 });
 updateRepUI();
 setPhase("waiting");
+applySettings();
+renderHistory();
+updateAchievements();

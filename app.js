@@ -24,10 +24,46 @@ let hasStartedSession = false;
 let lastVideoTime = -1;
 let lastRepAt = 0;
 let toastTimer = 0;
+let restEndsAt = 0;
+let angleHistory = [];
+let curledAt = 0;
+let elbowAnchor = null;
+let formWarningShown = false;
+let savedThisSession = false;
 let selectedPersonIndex = null;
 let lastPersonCount = 0;
 const personSelect = document.getElementById("personSelect");
 const personPickerWrap = document.getElementById("personPickerWrap");
+const STORAGE_KEYS = { settings: "repcounter-settings-v2", history: "repcounter-history-v2", lifetime: "repcounter-lifetime-v2" };
+const defaultSettings = { restSeconds: 60, sound: true, sensitivity: "standard", weeklySetGoal: 9 };
+function loadStored(key, fallback) {
+  try { const value = localStorage.getItem(key); return value ? { ...fallback, ...JSON.parse(value) } : JSON.parse(JSON.stringify(fallback)); }
+  catch { return JSON.parse(JSON.stringify(fallback)); }
+}
+function saveStored(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch { notify("Could not save to this browser. Check storage settings."); }
+}
+let settings = loadStored(STORAGE_KEYS.settings, defaultSettings);
+let workoutHistory = loadStored(STORAGE_KEYS.history, []);
+let lifetime = loadStored(STORAGE_KEYS.lifetime, { reps: 0, sets: 0 });
+function playAlert(frequency = 740) {
+  if (!settings.sound) return;
+  try {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    const audio = new AudioContextClass();
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(0.0001, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, audio.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audio.currentTime + 0.18);
+    oscillator.connect(gain); gain.connect(audio.destination);
+    oscillator.start(); oscillator.stop(audio.currentTime + 0.2);
+    oscillator.onended = () => audio.close();
+  } catch {}
+}
 
 const modelUrl = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
@@ -43,13 +79,20 @@ function setTrackingStatus(text, active = false) {
   $("trackingStatus").classList.toggle("active", active);
 }
 function updateSessionTime() {
-  if (!sessionStartedAt) return;
-  const seconds = Math.floor((Date.now() - sessionStartedAt) / 1000);
-  $("sessionTime").textContent = String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
+  if (sessionStartedAt) {
+    const seconds = Math.floor((Date.now() - sessionStartedAt) / 1000);
+    $("sessionTime").textContent = String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
+  }
+  if (restEndsAt) {
+    const remaining = Math.max(0, Math.ceil((restEndsAt - Date.now()) / 1000));
+    $("restCountdown").textContent = String(Math.floor(remaining / 60)).padStart(2, "0") + ":" + String(remaining % 60).padStart(2, "0");
+    if (remaining <= 0) finishRest();
+  }
 }
 function beginSession() {
   if (hasStartedSession) return;
   hasStartedSession = true;
+  savedThisSession = false;
   sessionStartedAt = Date.now();
   $("sessionStatus").textContent = "Session in progress";
   sessionClock = window.setInterval(updateSessionTime, 1000);
@@ -72,14 +115,29 @@ function setFeedback(title, text, symbol = "↗") {
   $("feedbackText").textContent = text;
   $("feedbackSymbol").textContent = symbol;
 }
-function updateAngle(angle) {
-  if (!Number.isFinite(angle)) return;
+function updateAngle(rawAngle, landmarks = null) {
+  if (!Number.isFinite(rawAngle) || restEndsAt) return;
+  angleHistory.push(rawAngle);
+  if (angleHistory.length > 5) angleHistory.shift();
+  const angle = angleHistory.reduce((sum, value) => sum + value, 0) / angleHistory.length;
   $("angleReadout").textContent = "Elbow angle: " + Math.round(angle) + "°";
   beginSession();
-  if (angle > 145) {
-    if (phase === "up") {
+  const limits = settings.sensitivity === "strict" ? { extended: 150, curled: 55 } :
+    settings.sensitivity === "gentle" ? { extended: 130, curled: 80 } : { extended: 140, curled: 70 };
+  let elbowDrift = 0;
+  if (landmarks) {
+    const right = armSelect.value === "right";
+    const shoulder = landmarks[right ? 12 : 11];
+    const elbow = landmarks[right ? 14 : 13];
+    if (shoulder && elbow) {
+      const point = { x: elbow.x - shoulder.x, y: elbow.y - shoulder.y };
+      if (elbowAnchor) elbowDrift = Math.hypot(point.x - elbowAnchor.x, point.y - elbowAnchor.y);
+    }
+  }
+  if (angle >= limits.extended) {
+    if (phase === "up" && curledAt && Date.now() - curledAt >= 120) {
       const now = Date.now();
-      if (now - lastRepAt > 650) {
+      if (now - lastRepAt >= 900 && (!landmarks || elbowDrift < 0.16)) {
         reps += 1;
         totalReps += 1;
         lastRepAt = now;
@@ -87,26 +145,42 @@ function updateAngle(angle) {
           setsCompleted += 1;
           reps = 0;
           updateRepUI();
-          setPhase("down");
           notify("Set completed — 12 curls counted!");
-          setFeedback("Set completed", "12 biceps curls completed. Rest comfortably, then continue when you're ready.", "✓");
+          setFeedback("Set completed", "12 biceps curls completed. Your rest timer has started.", "✓");
+          playAlert(880);
+          startRestTimer();
+          updateAchievements();
         } else {
           updateRepUI();
           notify("Rep " + reps + " of 12 counted");
+          playAlert(660);
         }
+      } else if (landmarks && elbowDrift >= 0.16) {
+        setFeedback("Keep your elbow steadier", "Avoid swinging your upper arm or torso. This rep was not counted.", "↔");
       }
     }
     setPhase("down");
-    setFeedback("Arm extended", "Good. Curl the weight up smoothly, keeping your elbow near your side.", "↓");
-  } else if (angle < 65) {
+    curledAt = 0;
+    elbowAnchor = null;
+    formWarningShown = false;
+    if (!restEndsAt) setFeedback("Arm extended", "Curl smoothly, keeping your upper arm close to your side.", "↓");
+  } else if (angle <= limits.curled) {
     if (phase === "down") {
       setPhase("up");
-      setFeedback("Curl detected", "Now lower the dumbbell with control to complete the repetition.", "↑");
-    } else if (phase === "waiting") {
-      setFeedback("Find your starting position", "Extend your arm comfortably first. The counter starts after it detects the full movement.", "◎");
+      curledAt = Date.now();
+      if (landmarks) {
+        const right = armSelect.value === "right";
+        const shoulder = landmarks[right ? 12 : 11];
+        const elbow = landmarks[right ? 14 : 13];
+        if (shoulder && elbow) elbowAnchor = { x: elbow.x - shoulder.x, y: elbow.y - shoulder.y };
+      }
+      setFeedback("Curl detected", "Pause briefly at the top, then lower the weight with control.", "↑");
     }
   } else if (phase === "waiting") {
-    setFeedback("Get into position", "Extend your arm comfortably so the counter can recognize the start of a full curl.", "↗");
+    setFeedback("Get into position", "Start with your arm comfortably extended, then curl and return through a controlled range.", "↗");
+  } else if (phase === "up" && angle > limits.curled + 18 && !formWarningShown) {
+    formWarningShown = true;
+    setFeedback("Lower with control", "Keep the movement smooth and avoid swinging your torso.", "↘");
   }
 }
 function angleBetween(a, b, c) {
@@ -213,7 +287,7 @@ function processArmLandmarks(landmarks) {
   const wrist = landmarks[isRight ? 16 : 15];
   const visibility = Math.min(shoulder?.visibility ?? 0, elbow?.visibility ?? 0, wrist?.visibility ?? 0);
   if (visibility > 0.4) {
-    updateAngle(angleBetween(shoulder, elbow, wrist));
+    updateAngle(angleBetween(shoulder, elbow, wrist), landmarks);
     setTrackingStatus("Tracking active", true);
   } else {
     $("angleReadout").textContent = "Arm not clear";

@@ -24,6 +24,10 @@ let hasStartedSession = false;
 let lastVideoTime = -1;
 let lastRepAt = 0;
 let toastTimer = 0;
+let selectedPersonIndex = null;
+let lastPersonCount = 0;
+const personSelect = document.getElementById("personSelect");
+const personPickerWrap = document.getElementById("personPickerWrap");
 
 const modelUrl = "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task";
 
@@ -54,8 +58,8 @@ function updateRepUI() {
   $("repCount").textContent = reps;
   $("totalReps").textContent = totalReps;
   $("setsCompleted").textContent = setsCompleted;
-  $("progressText").textContent = reps + " / 10";
-  $("progressBar").style.width = Math.min(100, reps * 10) + "%";
+  $("progressText").textContent = reps + " / 12";
+  $("progressBar").style.width = Math.min(100, (reps / 12) * 100) + "%";
 }
 function setPhase(next) {
   phase = next;
@@ -79,9 +83,17 @@ function updateAngle(angle) {
         reps += 1;
         totalReps += 1;
         lastRepAt = now;
-        updateRepUI();
-        if (reps === 10) notify("10 reps — finish your set whenever you're ready.");
-        else notify("Rep " + reps + " counted");
+        if (reps >= 12) {
+          setsCompleted += 1;
+          reps = 0;
+          updateRepUI();
+          setPhase("down");
+          notify("Set completed — 12 curls counted!");
+          setFeedback("Set completed", "12 biceps curls completed. Rest comfortably, then continue when you're ready.", "✓");
+        } else {
+          updateRepUI();
+          notify("Rep " + reps + " of 12 counted");
+        }
       }
     }
     setPhase("down");
@@ -148,13 +160,13 @@ async function createPoseTracker() {
   try {
     poseLandmarker = await PoseLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: modelUrl, delegate: "GPU" },
-      runningMode: "VIDEO", numPoses: 1,
+      runningMode: "VIDEO", numPoses: 5,
       minPoseDetectionConfidence: 0.55, minPosePresenceConfidence: 0.55, minTrackingConfidence: 0.55
     });
   } catch (gpuError) {
     poseLandmarker = await PoseLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: modelUrl, delegate: "CPU" },
-      runningMode: "VIDEO", numPoses: 1,
+      runningMode: "VIDEO", numPoses: 5,
       minPoseDetectionConfidence: 0.55, minPosePresenceConfidence: 0.55, minTrackingConfidence: 0.55
     });
   }
@@ -194,6 +206,20 @@ async function startCamera() {
     startButton.disabled = false;
   }
 }
+function processArmLandmarks(landmarks) {
+  const isRight = armSelect.value === "right";
+  const shoulder = landmarks[isRight ? 12 : 11];
+  const elbow = landmarks[isRight ? 14 : 13];
+  const wrist = landmarks[isRight ? 16 : 15];
+  const visibility = Math.min(shoulder?.visibility ?? 0, elbow?.visibility ?? 0, wrist?.visibility ?? 0);
+  if (visibility > 0.4) {
+    updateAngle(angleBetween(shoulder, elbow, wrist));
+    setTrackingStatus("Tracking active", true);
+  } else {
+    $("angleReadout").textContent = "Arm not clear";
+    setFeedback("Move your arm into view", "Try turning sideways and making sure your shoulder, elbow, and wrist are visible.", "◎");
+  }
+}
 function trackFrame() {
   if (!cameraStream || video.readyState < 2 || !poseLandmarker) {
     animationFrame = requestAnimationFrame(trackFrame);
@@ -204,21 +230,46 @@ function trackFrame() {
     lastVideoTime = video.currentTime;
     try {
       const result = poseLandmarker.detectForVideo(video, performance.now());
-      const landmarks = result.landmarks?.[0];
-      drawPose(landmarks);
-      if (landmarks) {
-        const isRight = armSelect.value === "right";
-        const shoulder = landmarks[isRight ? 12 : 11];
-        const elbow = landmarks[isRight ? 14 : 13];
-        const wrist = landmarks[isRight ? 16 : 15];
-        const visibility = Math.min(shoulder.visibility ?? 0, elbow.visibility ?? 0, wrist.visibility ?? 0);
-        if (visibility > 0.4) {
-          updateAngle(angleBetween(shoulder, elbow, wrist));
-        } else {
-          $("angleReadout").textContent = "Arm not clear";
-          setFeedback("Move your arm into view", "Try turning sideways and making sure your shoulder, elbow, and wrist are visible.", "◎");
+      const people = (result.landmarks || []).map((landmarks) => ({
+        landmarks,
+        x: ((landmarks[23]?.x ?? landmarks[11]?.x ?? 0.5) + (landmarks[24]?.x ?? landmarks[12]?.x ?? 0.5)) / 2
+      })).sort((a, b) => a.x - b.x);
+
+      if (people.length > 1) {
+        if (people.length !== lastPersonCount) {
+          lastPersonCount = people.length;
+          selectedPersonIndex = null;
+          personSelect.innerHTML = '<option value="">Choose a person…</option>';
+          people.forEach((person, index) => {
+            const option = document.createElement("option");
+            option.value = String(index);
+            option.textContent = `Person ${index + 1} — ${index === 0 ? "left" : index === people.length - 1 ? "right" : "middle"}`;
+            personSelect.appendChild(option);
+          });
+          personSelect.value = "";
         }
+        personPickerWrap.hidden = false;
+        if (selectedPersonIndex === null || selectedPersonIndex >= people.length) {
+          drawPose(null);
+          $("angleReadout").textContent = `${people.length} people detected`;
+          setTrackingStatus("Choose a person");
+          setFeedback("Who should I track?", "Select the person doing the biceps curls from the person menu. Rep counting pauses until you choose.", "◎");
+        } else {
+          processArmLandmarks(people[selectedPersonIndex].landmarks);
+          drawPose(people[selectedPersonIndex].landmarks);
+        }
+      } else if (people.length === 1) {
+        lastPersonCount = 1;
+        selectedPersonIndex = null;
+        personPickerWrap.hidden = true;
+        personSelect.innerHTML = '<option value="">Choose a person…</option>';
+        drawPose(people[0].landmarks);
+        processArmLandmarks(people[0].landmarks);
       } else {
+        lastPersonCount = 0;
+        selectedPersonIndex = null;
+        personPickerWrap.hidden = true;
+        drawPose(null);
         $("angleReadout").textContent = "Looking for pose…";
         setFeedback("Looking for your arm", "Step back slightly and keep your upper body in the camera frame.", "◎");
       }
@@ -330,22 +381,24 @@ stopButton.addEventListener("click", () => {
 demoButton.addEventListener("click", startDemo);
 armSelect.addEventListener("change", () => {
   setPhase("waiting");
-  setFeedback("Arm selection changed", "Extend your selected arm comfortably to begin tracking a full curl.", "↗");
+  setFeedback("Arm selection changed", "Extend your selected arm comfortably to begin tracking a full biceps curl.", "↗");
+});
+personSelect.addEventListener("change", () => {
+  selectedPersonIndex = personSelect.value === "" ? null : Number(personSelect.value);
+  setPhase("waiting");
+  if (selectedPersonIndex === null) {
+    setFeedback("Choose a person", "Rep counting stays paused until you choose who to track.", "◎");
+  } else {
+    setTrackingStatus("Tracking selected person", true);
+    setFeedback("Person selected", "Only the selected person's arm will be used for rep counting.", "✓");
+  }
 });
 $("resetButton").addEventListener("click", resetSession);
 $("undoRep").addEventListener("click", () => {
   if (reps > 0) { reps--; totalReps = Math.max(0, totalReps - 1); updateRepUI(); notify("Last rep removed"); }
   else notify("No reps to undo yet");
 });
-$("finishSet").addEventListener("click", () => {
-  if (reps === 0) { notify("Complete a rep before finishing the set."); return; }
-  setsCompleted += 1;
-  reps = 0;
-  updateRepUI();
-  setPhase("waiting");
-  notify("Set saved. Take a comfortable rest before the next one.");
-  setFeedback("Set completed", "Nice work. Rest as needed, then start again from a comfortable arm-extended position.", "✓");
-});
+
 $("themeToggle").addEventListener("click", () => {
   document.body.classList.toggle("light");
   $("themeToggle").textContent = document.body.classList.contains("light") ? "☾" : "☼";

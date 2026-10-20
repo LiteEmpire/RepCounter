@@ -158,6 +158,7 @@ function updateAngle(rawAngle, landmarks = null) {
           updateAchievements();
         } else {
           updateRepUI();
+          updateAchievements();
           notify("Rep " + reps + " of 12 counted");
           playAlert(660);
         }
@@ -484,11 +485,14 @@ function updateAchievements() {
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
-  const weeklySets = workoutHistory.filter(w => new Date(w.date) >= weekStart).reduce((sum, w) => sum + (w.sets || 0), 0);
+  const savedWeeklySets = workoutHistory.filter(w => new Date(w.date) >= weekStart).reduce((sum, w) => sum + (w.sets || 0), 0);
+  const weeklySets = savedWeeklySets + (savedThisSession ? 0 : setsCompleted);
+  const lifetimeReps = (lifetime.reps || 0) + (savedThisSession ? 0 : totalReps);
+  const lifetimeSets = (lifetime.sets || 0) + (savedThisSession ? 0 : setsCompleted);
   const achievements = [
-    { name: "First curl", desc: "Count your first rep", unlocked: (lifetime.reps || 0) >= 1 },
-    { name: "First full set", desc: "Complete 12 reps", unlocked: (lifetime.sets || 0) >= 1 },
-    { name: "100 reps", desc: "Accumulate 100 reps", unlocked: (lifetime.reps || 0) >= 100 },
+    { name: "First curl", desc: "Count your first rep", unlocked: lifetimeReps >= 1 },
+    { name: "First full set", desc: "Complete 12 reps", unlocked: lifetimeSets >= 1 },
+    { name: "100 reps", desc: "Accumulate 100 reps", unlocked: lifetimeReps >= 100 },
     { name: "5 workouts", desc: "Save five workouts", unlocked: workoutHistory.length >= 5 },
     { name: "Weekly goal", desc: weeklySets + " / " + settings.weeklySetGoal + " sets this week", unlocked: weeklySets >= settings.weeklySetGoal }
   ];
